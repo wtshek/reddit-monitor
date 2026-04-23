@@ -2,7 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const INTENT_META = {
+type Intent = "seeking_alternative" | "frustrated" | "recommendation" | "general" | "unrelated";
+
+type IntentMeta = { label: string; color: string; bg: string };
+
+const INTENT_META: Record<Intent, IntentMeta> = {
   seeking_alternative: { label: "Seeking Alternative", color: "#22c55e", bg: "#052e16" },
   frustrated:          { label: "Frustrated",          color: "#f97316", bg: "#1c0a00" },
   recommendation:      { label: "Wants Rec",           color: "#3b82f6", bg: "#0c1a2e" },
@@ -10,9 +14,31 @@ const INTENT_META = {
   unrelated:           { label: "Unrelated",            color: "#52525b", bg: "#09090b" },
 };
 
+type Keyword = {
+  id: string;
+  keyword: string;
+  subreddit: string | null;
+  active: boolean;
+  created_at?: string;
+};
+
+type Post = {
+  id: string;
+  title: string;
+  body?: string;
+  url: string;
+  author: string;
+  subreddit: string;
+  intent: Intent;
+  relevance_score: number;
+  reasoning?: string;
+  matched_keyword?: string;
+  posted_at: string;
+};
+
 const mono = "'IBM Plex Mono', monospace";
 
-function timeAgo(iso) {
+function timeAgo(iso: string | Date): string {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
   if (m < 60) return `${m}m ago`;
@@ -22,13 +48,13 @@ function timeAgo(iso) {
 }
 
 // ─── KEYWORD PANEL ────────────────────────────────────────────────────────────
-function KeywordPanel({ onClose }) {
-  const [keywords, setKeywords] = useState([]);
+function KeywordPanel({ onClose }: { onClose: () => void }) {
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
   const [input, setInput] = useState("");
   const [subreddit, setSubreddit] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const inputRef = useRef(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); load(); }, []);
 
@@ -54,7 +80,7 @@ function KeywordPanel({ onClose }) {
     setSaving(false);
   }
 
-  async function toggleKeyword(id, active) {
+  async function toggleKeyword(id: string, active: boolean) {
     setKeywords(kws => kws.map(k => k.id === id ? { ...k, active: !active } : k));
     await fetch(`/api/keywords?id=${id}`, {
       method: "PATCH",
@@ -63,7 +89,7 @@ function KeywordPanel({ onClose }) {
     });
   }
 
-  async function deleteKeyword(id) {
+  async function deleteKeyword(id: string) {
     setKeywords(kws => kws.filter(k => k.id !== id));
     await fetch(`/api/keywords?id=${id}`, { method: "DELETE" });
   }
@@ -183,8 +209,8 @@ function KeywordPanel({ onClose }) {
                 background: "none", border: "none", color: "#2a2a2a",
                 cursor: "pointer", fontSize: "16px", lineHeight: 1, flexShrink: 0,
               }}
-                onMouseEnter={e => e.target.style.color = "#f87171"}
-                onMouseLeave={e => e.target.style.color = "#2a2a2a"}
+                onMouseEnter={e => (e.currentTarget.style.color = "#f87171")}
+                onMouseLeave={e => (e.currentTarget.style.color = "#2a2a2a")}
               >×</button>
             </div>
           ))}
@@ -201,7 +227,7 @@ function KeywordPanel({ onClose }) {
 }
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
-function ScoreBadge({ score }) {
+function ScoreBadge({ score }: { score: number }) {
   const color = score >= 8 ? "#22c55e" : score >= 6 ? "#f97316" : "#a1a1aa";
   return (
     <span style={{
@@ -211,7 +237,7 @@ function ScoreBadge({ score }) {
   );
 }
 
-function IntentTag({ intent }) {
+function IntentTag({ intent }: { intent: Intent }) {
   const meta = INTENT_META[intent] || INTENT_META.general;
   return (
     <span style={{
@@ -222,7 +248,7 @@ function IntentTag({ intent }) {
   );
 }
 
-function PostCard({ post }) {
+function PostCard({ post }: { post: Post }) {
   const [expanded, setExpanded] = useState(false);
   return (
     <div style={{
@@ -230,8 +256,8 @@ function PostCard({ post }) {
       padding: "16px", display: "flex", flexDirection: "column", gap: "10px",
       transition: "border-color 0.15s",
     }}
-      onMouseEnter={e => e.currentTarget.style.borderColor = "#333"}
-      onMouseLeave={e => e.currentTarget.style.borderColor = "#222"}
+      onMouseEnter={e => (e.currentTarget.style.borderColor = "#333")}
+      onMouseLeave={e => (e.currentTarget.style.borderColor = "#222")}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
         <ScoreBadge score={post.relevance_score} />
@@ -244,8 +270,8 @@ function PostCard({ post }) {
         color: "#e5e5e5", fontFamily: "'Instrument Serif', serif",
         fontSize: "16px", lineHeight: "1.4", textDecoration: "none",
       }}
-        onMouseEnter={e => e.target.style.color = "#fff"}
-        onMouseLeave={e => e.target.style.color = "#e5e5e5"}
+        onMouseEnter={e => (e.currentTarget.style.color = "#fff")}
+        onMouseLeave={e => (e.currentTarget.style.color = "#e5e5e5")}
       >{post.title}</a>
 
       {post.body && (
@@ -294,16 +320,16 @@ function PostCard({ post }) {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function RedditMonitor() {
-  const [posts, setPosts] = useState([]);
+  const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<Intent | "all">("all");
   const [minScore, setMinScore] = useState(6);
-  const [lastRefresh, setLastRefresh] = useState(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [showKeywords, setShowKeywords] = useState(false);
 
   async function fetchPosts() {
     setLoading(true);
-    const params = new URLSearchParams({ minScore, limit: 50 });
+    const params = new URLSearchParams({ minScore: String(minScore), limit: "50" });
     if (filter !== "all") params.set("intent", filter);
     const res  = await fetch(`/api/posts?${params}`);
     const data = await res.json();
@@ -314,7 +340,7 @@ export default function RedditMonitor() {
 
   useEffect(() => { fetchPosts(); }, [filter, minScore]);
 
-  const intents = ["all", "seeking_alternative", "frustrated", "recommendation", "general"];
+  const intents: (Intent | "all")[] = ["all", "seeking_alternative", "frustrated", "recommendation", "general"];
 
   return (
     <>
